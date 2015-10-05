@@ -1,11 +1,8 @@
 from django.contrib import admin
-from invitation.models import InvitationKey, InvitationUser
+from invitation.models import Invitation
 
-class InvitationKeyAdmin(admin.ModelAdmin):
-    list_display = ('__unicode__', 'from_user', 'date_invited', 'key_expired')
+class InvitationAdmin(admin.ModelAdmin):
+    list_display = ('__unicode__', 'sender', 'receiver', 'receiver_email','date_invited', 'key_expired')
 
-class InvitationUserAdmin(admin.ModelAdmin):
-    list_display = ('inviter', 'invitations_remaining')
+admin.site.register(Invitation, InvitationAdmin)
 
-admin.site.register(InvitationKey, InvitationKeyAdmin)
-admin.site.register(InvitationUser, InvitationUserAdmin)
