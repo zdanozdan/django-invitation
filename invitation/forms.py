@@ -17,7 +17,7 @@ class UserOrEmailField(forms.EmailField):
         return super(UserOrEmailField, self).clean(value)
 
 class InvitationForm(forms.ModelForm):
-    invited = UserOrEmailField(error_messages={'invalid':_('User does not exists or this email address is invalid')})
+    invited = UserOrEmailField(error_messages={'invalid':_('User does not exists or this email address is invalid')},label=_("Invite now"))
 
     def get_invited(self):
         return self.cleaned_data['invited']
