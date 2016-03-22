@@ -99,17 +99,26 @@ class Invitation(models.Model):
         """
         self.registrant = registrant
         self.save()
-        
-    def send_mail(self):
-        """
-        Send an invitation email to ``self.receiver``.
-        """
+
+    def render_templates(self,kwargs={}):
         current_site = Site.objects.get_current()
+
+        z = kwargs.copy()
+        z.update({'site': current_site, 'invitation':self})
         
-        subject = render_to_string('invitation/invitation_email_subject.txt',{ 'site': current_site, 'invitation': self })
+        subject = render_to_string('invitation/invitation_email_subject.txt', z)
 
         # Email subject *must not* contain newlines
         subject = ''.join(subject.splitlines())
         
-        message = render_to_string('invitation/invitation_email.txt',{ 'invitation': self,'site': current_site })
+        message = render_to_string('invitation/invitation_email.txt', z)
+
+        return (subject,message)
+        
+    def send_mail(self, kwargs={}):
+        """
+        Send an invitation email to ``self.receiver``.
+        """
+        subject,message = self.render_templates(kwargs)
+        
         send_mail(subject, message, self.sender.email, [self.get_receiver_email(),])
