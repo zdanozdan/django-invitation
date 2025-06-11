@@ -1,17 +1,14 @@
-import os
 import random
 import datetime
+import hashlib
 from django.db import models
 from django.conf import settings
-from django.utils.http import int_to_base36
-from django.utils.hashcompat import sha_constructor
-from django.utils.translation import ugettext_lazy as _
-from django.contrib.auth.models import User,Group
+from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
+from django.contrib.auth.models import User
 from django.core.mail import send_mail
 from django.template.loader import render_to_string
 from django.contrib.sites.models import Site
-
-from registration.models import SHA1_RE
 
 class InvitationManager(models.Manager):
     def get_key(self, invitation_key):
@@ -38,8 +35,8 @@ class InvitationManager(models.Manager):
         The key for the ``Invitation`` will be a SHA1 hash, generated 
         from a combination of the ``User``'s username and a random salt.
         """
-        salt = sha_constructor(str(random.random())).hexdigest()[:5]
-        key = sha_constructor("%s%s%s" % (datetime.datetime.now(), salt, user.username)).hexdigest()
+        salt = hashlib.sha1(str(random.random()).encode('utf-8')).hexdigest()[:5]
+        key = hashlib.sha1(("%s%s%s" % (datetime.datetime.now(), salt, user.username)).encode('utf-8')).hexdigest()
 
         return key
 
@@ -47,7 +44,7 @@ class InvitationManager(models.Manager):
         """
         Create an ``Invitation`` and returns it.
         """
-        key = self.key(user)
+        key = self.create_key(user)
 
         if isinstance(receiver,User) == False:
             return Invitation(sender=user,receiver_email=receiver,key=key)
@@ -63,14 +60,14 @@ class InvitationManager(models.Manager):
 class Invitation(models.Model):
     key = models.CharField(_('invitation key'), max_length=40)
     date_invited = models.DateTimeField(_('date invited'),auto_now_add=True)
-    sender = models.ForeignKey(User, related_name='invitations_sent')
-    receiver = models.ForeignKey(User, null=True, blank=True, related_name='invitations_used')
+    sender = models.ForeignKey(User, related_name='invitations_sent', on_delete=models.CASCADE)
+    receiver = models.ForeignKey(User, null=True, blank=True, related_name='invitations_used', on_delete=models.SET_NULL)
     receiver_email = models.EmailField(_("Email"),null=True, blank=True)
     
     objects = InvitationManager()
 
-    def __unicode__(self):
-        return u"Invitation from %s on %s" % (self.sender.username, self.date_invited)
+    def __str__(self):
+        return "Invitation from %s on %s" % (self.sender.username, self.date_invited)
 
     def get_receiver_email(self):
         return self.receiver.email if self.receiver else self.receiver_email
@@ -87,17 +84,15 @@ class Invitation(models.Model):
         current date, the key has expired and this method returns ``True``.
         
         """
-        #expiration_date = datetime.timedelta(days=settings.ACCOUNT_INVITATION_DAYS)
-        #expiration_date = datetime.timedelta(days=30)
-        #return self.date_invited + expiration_date <= datetime.datetime.now()
-        return False
+        expiration_date = datetime.timedelta(days=settings.ACCOUNT_INVITATION_DAYS)
+        return self.date_invited + expiration_date <= timezone.now()
     key_expired.boolean = True
     
     def mark_used(self, registrant):
         """
         Note that this key has been used to register a new user.
         """
-        self.registrant = registrant
+        self.receiver = registrant
         self.save()
 
     def render_templates(self,app_name, kwargs={}):
