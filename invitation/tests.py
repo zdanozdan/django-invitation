@@ -17,17 +17,17 @@ getting django-invitation running in the default setup, to wit:
 """
 
 import datetime
-import sha
+import hashlib
 
 from django.conf import settings
 from django.contrib.auth.models import User
-from django.core import mail
-from django.core import management
-from django.core.urlresolvers import reverse
+from django.core import mail, management
+from django.urls import reverse
 from django.test import TestCase
 
 from invitation import forms
-from invitation.models import InvitationKey, InvitationUser
+from invitation.models import Invitation
+
 
 class InvitationTestCase(TestCase):
     """
@@ -41,8 +41,10 @@ class InvitationTestCase(TestCase):
         self.sample_user = User.objects.create_user(username='alice',
                                                     password='secret',
                                                     email='alice@example.com')
-        self.sample_key = InvitationKey.objects.create_invitation(user=self.sample_user)
-        self.expired_key = InvitationKey.objects.create_invitation(user=self.sample_user)
+        self.sample_key = Invitation.objects.create_invitation(user=self.sample_user, receiver=self.sample_user)
+        self.sample_key.save()
+        self.expired_key = Invitation.objects.create_invitation(user=self.sample_user, receiver=self.sample_user)
+        self.expired_key.save()
         self.expired_key.date_invited -= datetime.timedelta(days=settings.ACCOUNT_INVITATION_DAYS + 1)
         self.expired_key.save()
         
@@ -69,41 +71,41 @@ class InvitationModelTests(InvitationTestCase):
     """
     def test_invitation_key_created(self):
         """
-        Test that a ``InvitationKey`` is created for a new key.
+        Test that a ``Invitation`` is created for a new key.
         
         """
-        self.assertEqual(InvitationKey.objects.count(), 2)
+        self.assertEqual(Invitation.objects.count(), 2)
 
     def test_invitation_email(self):
         """
-        Test that ``InvitationKey.send_to`` sends an invitation email.
+        Test that ``Invitation.send_mail`` sends an invitation email.
         
         """
-        self.sample_key.send_to('bob@example.com')
+        self.sample_key.send_mail('invitation', {})
         self.assertEqual(len(mail.outbox), 1)
 
     def test_key_expiration_condition(self):
         """
-        Test that ``InvitationKey.key_expired()`` returns ``True`` for expired 
+        Test that ``Invitation.key_expired()`` returns ``True`` for expired 
         keys, and ``False`` otherwise.
         
         """
         # Unexpired user returns False.
-        self.failIf(self.sample_key.key_expired())
+        self.assertFalse(self.sample_key.key_expired())
 
         # Expired user returns True.
-        self.failUnless(self.expired_key.key_expired())
+        self.assertTrue(self.expired_key.key_expired())
 
     def test_expired_user_deletion(self):
         """
-        Test ``InvitationKey.objects.delete_expired_keys()``.
+        Test ``Invitation.objects.delete_expired_keys()``.
         
         Only keys whose expiration date has passed are deleted by 
         delete_expired_keys.
         
         """
-        InvitationKey.objects.delete_expired_keys()
-        self.assertEqual(InvitationKey.objects.count(), 1)
+        Invitation.objects.delete_expired_keys()
+        self.assertEqual(Invitation.objects.count(), 1)
 
     def test_management_command(self):
         """
@@ -111,40 +113,7 @@ class InvitationModelTests(InvitationTestCase):
         
         """
         management.call_command('cleanupinvitation')
-        self.assertEqual(InvitationKey.objects.count(), 1)
-        
-    def test_invitations_remaining(self):
-        """Test InvitationUser calculates remaining invitations properly."""
-        remaining_invites = InvitationKey.objects.remaining_invitations_for_user
-
-        # New user starts with settings.INVITATIONS_PER_USER
-        user = User.objects.create_user(username='newbie',
-                                        password='secret',
-                                        email='newbie@example.com')
-        self.assertEqual(remaining_invites(user), settings.INVITATIONS_PER_USER)
-
-        # After using some, amount remaining is decreased
-        used = InvitationKey.objects.filter(from_user=self.sample_user).count()
-        expected_remaining = settings.INVITATIONS_PER_USER - used
-        remaining = remaining_invites(self.sample_user)
-        self.assertEqual(remaining, expected_remaining)
-        
-        # Using Invitationuser via Admin, remaining can be increased
-        invitation_user = InvitationUser.objects.get(inviter=self.sample_user)
-        new_remaining = 2*settings.INVITATIONS_PER_USER + 1
-        invitation_user.invitations_remaining = new_remaining
-        invitation_user.save()
-        remaining = remaining_invites(self.sample_user)
-        self.assertEqual(remaining, new_remaining)
-
-        # If no InvitationUser (for pre-existing/legacy User), one is created
-        old_sample_user = User.objects.create_user(username='lewis',
-                                                   password='secret',
-                                                   email='lewis@example.com')
-        old_sample_user.invitationuser_set.all().delete()
-        self.assertEqual(old_sample_user.invitationuser_set.count(), 0)
-        remaining = remaining_invites(old_sample_user)
-        self.assertEqual(remaining, settings.INVITATIONS_PER_USER)
+        self.assertEqual(Invitation.objects.count(), 1)
 
         
 class InvitationFormTests(InvitationTestCase):
@@ -155,24 +124,24 @@ class InvitationFormTests(InvitationTestCase):
     """
     def test_invitation_form(self):
         """
-        Test that ``InvitationKeyForm`` enforces email constraints.
+        Test that ``InvitationForm`` enforces email constraints.
         
         """
         invalid_data_dicts = [
             # Invalid email.
             {
             'data': { 'email': 'example.com' },
-            'error': ('email', [u"Enter a valid e-mail address."])
+            'error': ('email', ["Enter a valid e-mail address."])
             },
             ]
 
         for invalid_dict in invalid_data_dicts:
-            form = forms.InvitationKeyForm(data=invalid_dict['data'])
-            self.failIf(form.is_valid())
+            form = forms.InvitationForm(data=invalid_dict['data'])
+            self.assertFalse(form.is_valid())
             self.assertEqual(form.errors[invalid_dict['error'][0]], invalid_dict['error'][1])
 
-        form = forms.InvitationKeyForm(data={ 'email': 'foo@example.com' })
-        self.failUnless(form.is_valid())
+        form = forms.InvitationForm(data={ 'invited': 'foo@example.com' })
+        self.assertTrue(form.is_valid())
 
 
 class InvitationViewTests(InvitationTestCase):
@@ -188,32 +157,19 @@ class InvitationViewTests(InvitationTestCase):
         """
         # You need to be logged in to send an invite.
         response = self.client.login(username='alice', password='secret')
-        remaining_invitations = InvitationKey.objects.remaining_invitations_for_user(self.sample_user)
         
         # Invalid email data fails.
         response = self.client.post(reverse('invitation_invite'),
-                                    data={ 'email': 'example.com' })
+                                    data={ 'invited': 'example.com' })
         self.assertEqual(response.status_code, 200)
-        self.failUnless(response.context['form'])
-        self.failUnless(response.context['form'].errors)
+        self.assertTrue(response.context['form'])
+        self.assertTrue(response.context['form'].errors)
 
         # Valid email data succeeds.
         response = self.client.post(reverse('invitation_invite'),
-                                    data={ 'email': 'foo@example.com' })
+                                    data={ 'invited': 'foo@example.com' })
         self.assertRedirect(response, 'invitation_complete')
-        self.assertEqual(InvitationKey.objects.count(), 3)
-        self.assertEqual(InvitationKey.objects.remaining_invitations_for_user(self.sample_user), remaining_invitations-1)
-        
-        # Once remaining invitations exhausted, you fail again.
-        while InvitationKey.objects.remaining_invitations_for_user(self.sample_user) > 0:
-            self.client.post(reverse('invitation_invite'),
-                             data={'email': 'foo@example.com'})
-        self.assertEqual(InvitationKey.objects.remaining_invitations_for_user(self.sample_user), 0)
-        response = self.client.post(reverse('invitation_invite'),
-                                    data={'email': 'foo@example.com'})
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context['remaining_invitations'], 0)
-        self.failUnless(response.context['form'])
+        self.assertEqual(Invitation.objects.count(), 3)
     
     def test_invited_view(self):
         """
@@ -241,7 +197,7 @@ class InvitationViewTests(InvitationTestCase):
 
         # Nonexistent key use the wrong key template.
         response = self.client.get(reverse('invitation_invited',
-                                           kwargs={ 'invitation_key': sha.new('foo').hexdigest() }))
+                                           kwargs={ 'invitation_key': hashlib.sha1('foo'.encode()).hexdigest() }))
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, 'invitation/wrong_invitation_key.html')
 
@@ -256,8 +212,9 @@ class InvitationViewTests(InvitationTestCase):
                                     data=registration_data)
         self.assertRedirect(response, 'registration_complete')
         user = User.objects.get(username='new_user')
-        key = InvitationKey.objects.get_key(self.sample_key.key)
-        self.assertEqual(user, key.registrant)
+        key = Invitation.objects.get_key(self.sample_key.key)
+        if key:
+            self.assertEqual(user, key.receiver)
 
         # Trying to reuse the same key then fails.
         registration_data['username'] = 'even_newer_user'

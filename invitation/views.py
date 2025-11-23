@@ -1,15 +1,14 @@
 from django.conf import settings
-from django.core.urlresolvers import reverse
+from django.contrib.auth.decorators import login_required
 from django.http import HttpResponseRedirect
-from django.contrib.auth.decorators import login_required
-from django.shortcuts import render_to_response
-from django.template import RequestContext
-from django.contrib.auth.decorators import login_required
+from django.shortcuts import render
+from django.urls import reverse
+
+from invitation.forms import InvitationForm
 
 #from registration.views import register as registration_register
-
 from invitation.models import Invitation
-from invitation.forms import InvitationForm
+
 
 @login_required
 def invited(request, invitation_key=None):
@@ -18,19 +17,20 @@ def invited(request, invitation_key=None):
     else:
         template_name = 'invitation/wrong_invitation_key.html'
 
-    return render_to_response(template_name, {}, context_instance=RequestContext(request))
+    return render(request, template_name, {})
 
 @login_required
 def invite(request):
-    form = InvitationForm
+    form = InvitationForm()
     if request.method == 'POST':
         form = InvitationForm(request.POST)
         if form.is_valid():
-            invitation = Invitation.objects.create_invitation(user=request.user,receiver=form.get_invited())
+            invited = form.get_invited()
+            invitation = Invitation.objects.create_invitation(user=request.user, receiver=invited)
             invitation.save()
-            invitation.send_to(form.get_email())
+            invitation.send_mail('invitation', {})
             return HttpResponseRedirect(request.GET.get('next') or reverse('invitation_complete'))
 
-    return render_to_response('invitation/invitation_form.html', {
+    return render(request, 'invitation/invitation_form.html', {
         'form' : form,
-    },context_instance=RequestContext(request))
+    })

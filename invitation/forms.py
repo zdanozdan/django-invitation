@@ -1,9 +1,11 @@
 from django import forms
-from django.contrib.auth.models import User,Group
+from django.contrib.auth.models import Group, User
 from django.core.validators import EmailValidator
 from django.db.models import Q
-from django.utils.translation import ugettext_lazy as _
+from django.utils.translation import gettext_lazy as _
+
 from invitation.models import Invitation
+
 
 class UserOrEmailField(forms.EmailField):
 

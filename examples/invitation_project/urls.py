@@ -1,8 +1,8 @@
+from django.conf import settings
 from django.conf.urls.defaults import *
 from django.contrib import admin
-from django.conf import settings
-
 from registration.forms import RegistrationFormTermsOfService
+
 from invitation.views import register
 
 admin.autodiscover()

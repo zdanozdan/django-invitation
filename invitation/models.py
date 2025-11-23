@@ -1,14 +1,16 @@
-import random
 import datetime
 import hashlib
-from django.db import models
+import random
+
 from django.conf import settings
+from django.contrib.auth.models import User
+from django.contrib.sites.models import Site
+from django.core.mail import send_mail
+from django.db import models
+from django.template.loader import render_to_string
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
-from django.contrib.auth.models import User
-from django.core.mail import send_mail
-from django.template.loader import render_to_string
-from django.contrib.sites.models import Site
+
 
 class InvitationManager(models.Manager):
     def get_key(self, invitation_key):
